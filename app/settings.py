@@ -7,7 +7,7 @@ from dotenv import dotenv_values, load_dotenv
 @dataclass
 class ConfigVars:
     spreadsheet_id: str
-    range: str
+    sheet_name: str
 
 
 T = TypeVar("T")
