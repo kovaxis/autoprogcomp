@@ -5,6 +5,11 @@ description = "Actualizar automaticamente el spreadsheet de notas del taller de 
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "google-api-python-client>=2.164.0",
+    "google-api-python-client-stubs>=1.29.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.1",
+    "python-dotenv==1.0.1",
 ]
 
 [dependency-groups]
