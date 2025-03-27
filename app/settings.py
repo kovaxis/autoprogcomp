@@ -1,24 +1,38 @@
-from typing import TypeVar
+import json
+import os
+from typing import Any, TypeVar
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+
+class Schedule(BaseModel):
+    hour: int | None
+    minute: int
 
 
 class ConfigVars(BaseModel):
     codeforces_apikey: str
     codeforces_secret: str
     spreadsheet_id: str
-    sheet_name: str
+    sheet_name: str = "Codeforces"
+    schedule: Schedule = Schedule(hour=0, minute=0)
 
 
 T = TypeVar("T", bound=BaseModel)
 
 
-def _load_config(model: type[T]) -> T:
-    load_dotenv(dotenv_path=".env", override=True)
-    env_vars = dotenv_values()
+def try_jsonparse(s: str) -> Any:
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return s
 
-    mapped_env_vars = {key.lower(): val for key, val in env_vars.items()}
+
+def _load_config(model: type[T]) -> T:
+    load_dotenv(dotenv_path="./config/.env", override=True)
+
+    mapped_env_vars = {key.lower(): try_jsonparse(val) for key, val in os.environ.items()}
 
     return model.model_validate(mapped_env_vars)
 

@@ -1,0 +1,12 @@
+
+# Identifier for the set of containers
+name: 'autoprogcomp'
+
+# List of all containers in the set
+services:
+  # Container running autoprogcomp regurarly
+  autoprogcomp:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./config/:/app/config

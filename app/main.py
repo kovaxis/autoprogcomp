@@ -46,8 +46,8 @@ def authorize() -> Credentials:
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
+    if os.path.exists("./config/token.json"):
+        creds = Credentials.from_authorized_user_file("./config/token.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
     else:
         creds = None
     # If there are no (valid) credentials available, let the user log in.
@@ -55,10 +55,10 @@ def authorize() -> Credentials:
         if creds and creds.expired and creds.refresh_token:  # pyright: ignore[reportUnknownMemberType]
             creds.refresh(Request())  # pyright: ignore[reportUnknownMemberType]
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
+            flow = InstalledAppFlow.from_client_secrets_file("./config/credentials.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
             creds = flow.run_local_server(port=0)  # pyright: ignore[reportUnknownMemberType]
         # Save the credentials for the next run
-        with open("token.json", "w") as token:
+        with open("./config/token.json", "w") as token:
             token.write(creds.to_json())  # pyright: ignore[reportUnknownMemberType]
 
     return creds
