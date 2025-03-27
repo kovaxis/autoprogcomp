@@ -8,4 +8,4 @@ class SubmissionSynthetic(BaseModel):
     """
 
     points: int | None = None
-    requires_coupon: bool = False
+    points_with_coupon: int | None = None

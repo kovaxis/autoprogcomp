@@ -17,7 +17,7 @@ class Problem(BaseModel):
     index: str
     name: str
     type: Literal["PROGRAMMING", "QUESTION"]
-    points: int | None = None
+    points: float | None = None
     rating: int | None = None
     tags: list[str]
 
@@ -72,7 +72,7 @@ class Submission(BaseModel):
     passedTestCount: int
     timeConsumedMillis: int
     memoryConsumedBytes: int
-    points: int | None = None
+    points: float | None = None
     synthetic: SubmissionSynthetic = Field(default_factory=SubmissionSynthetic)
 
 
@@ -109,7 +109,19 @@ class CodeforcesFailed(BaseModel):
     comment: str
 
 
+_last_codeforces_call: float | None = None
+
+API_COOLDOWN: float = 1
+
+
 def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
+    global _last_codeforces_call  # noqa: PLW0603
+    now = time.monotonic()
+    if _last_codeforces_call is not None and now - _last_codeforces_call < API_COOLDOWN:
+        to_sleep = _last_codeforces_call + API_COOLDOWN - now
+        time.sleep(to_sleep)
+    _last_codeforces_call = now
+    print(f"calling codeforces api: {method} {params}")
     timestamp = round(time.time())
     rand = "".join(random.choices("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", k=6))
     params["apiKey"] = config.codeforces_apikey
@@ -132,7 +144,7 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
 def contest_status(contest_id: str) -> list[Submission]:
     return call_any(
         "contest.status",
-        {"contest_id": contest_id},
+        {"contestId": contest_id},
         list[Submission],
     )
 
@@ -146,4 +158,8 @@ def user_status(handle: str) -> list[Submission]:
 
 
 def user_rating(handle: str) -> list[RatingChange]:
-    return call_any("user.rating", {"handle": handle}, list[RatingChange])
+    return call_any(
+        "user.rating",
+        {"handle": handle},
+        list[RatingChange],
+    )

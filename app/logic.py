@@ -1,6 +1,8 @@
 import re
 from collections import defaultdict
 from collections.abc import Callable
+from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -14,18 +16,29 @@ class ContestState(BaseModel):
 
 
 class HandleState(BaseModel):
-    by_contest: defaultdict[str, ContestState] = Field(default_factory=lambda: defaultdict(ContestState))
+    by_contest: defaultdict[str, Annotated[ContestState, Field(default_factory=ContestState)]] = Field(
+        default_factory=lambda: defaultdict(ContestState)
+    )
     available_coupons: int = 0
     used_coupons: int = 0
+
+    def insert_submission(self, submission: Submission, commands: "Commands"):
+        contest_id = "" if submission.contestId is None else str(submission.contestId)
+        contest = self.by_contest[contest_id]
+        prev = contest.by_index.get(submission.problem.index, None)
+        if rank_submission(commands, submission) > rank_submission(commands, prev):
+            contest.by_index[submission.problem.index] = submission
 
 
 class GlobalState(BaseModel):
     handles: list[str]
-    by_handle: defaultdict[str, HandleState] = Field(default_factory=lambda: defaultdict(HandleState))
+    by_handle: defaultdict[str, Annotated[HandleState, Field(default_factory=HandleState)]] = Field(
+        default_factory=lambda: defaultdict(HandleState)
+    )
 
 
 class CommandOutput(BaseModel):
-    by_handle: list[str]
+    by_handle: list[str | int]
 
 
 CommandOutputGenerator = Callable[[GlobalState], CommandOutput]
@@ -39,12 +52,15 @@ class ContestCmd(BaseModel):
     @staticmethod
     def parse(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
         points_by_index: dict[re.Pattern[str], int] = {}
-        for mapping in mat[2].split(","):
-            mapping_mat = re.fullmatch(r"([^=]+)=(\d+)", mapping)
-            if mapping_mat is None:
-                raise RuntimeError(f"invalid problem point mapping '{mapping}'")
-            pat = re.compile(mapping_mat[1], re.IGNORECASE)
-            points_by_index[pat] = int(mapping_mat[2])
+        if mat[2] is None:
+            points_by_index[re.compile(r".*")] = 1
+        else:
+            for mapping in mat[2].split(","):
+                mapping_mat = re.fullmatch(r"([^=]+)=(\d+)", mapping)
+                if mapping_mat is None:
+                    raise RuntimeError(f"invalid problem point mapping '{mapping}'")
+                pat = re.compile(mapping_mat[1], re.IGNORECASE)
+                points_by_index[pat] = int(mapping_mat[2])
         cmd = ContestCmd(contest_id=mat[1], points_by_index=points_by_index)
         c.contest.append(cmd)
         return cmd.generate_output
@@ -57,27 +73,23 @@ class ContestCmd(BaseModel):
                     if sub.verdict == "OK":
                         for pat, points in self.points_by_index.items():
                             if pat.fullmatch(index):
-                                sub.synthetic.points = max(sub.synthetic.points or 0, points)
-                                if sub.author.participantType != "CONTESTANT":
-                                    sub.synthetic.requires_coupon = True
+                                if sub.author.participantType == "CONTESTANT":
+                                    sub.synthetic.points = max(sub.synthetic.points or 0, points)
+                                else:
+                                    sub.synthetic.points_with_coupon = max(
+                                        sub.synthetic.points_with_coupon or 0, points
+                                    )
 
     def generate_output(self, global_state: GlobalState) -> CommandOutput:
         out = CommandOutput(by_handle=[])
         for handle in global_state.handles:
             handle_state = global_state.by_handle[handle]
             score = 0
-            subs_that_require_coupon: list[int] = []
-            for contest in handle_state.by_contest.values():
+            contest = handle_state.by_contest.get(self.contest_id, None)
+            if contest is not None:
                 for sub in contest.by_index.values():
-                    if sub.synthetic.points is not None:
-                        if sub.synthetic.requires_coupon:
-                            subs_that_require_coupon.append(sub.synthetic.points)
-                        else:
-                            score += sub.synthetic.points
-            subs_that_require_coupon.sort(reverse=True)
-            handle_state.used_coupons = min(len(subs_that_require_coupon), handle_state.available_coupons)
-            score += sum(subs_that_require_coupon[: handle_state.used_coupons])
-            out.by_handle.append(str(score))
+                    score += sub.synthetic.points or 0
+            out.by_handle.append(score)
         return out
 
 
@@ -97,9 +109,9 @@ class LangCmd(BaseModel):
             solved_with_lang = 0
             for contest in handle_state.by_contest.values():
                 for sub in contest.by_index.values():
-                    if self.lang in sub.programmingLanguage.lower():
+                    if sub.verdict == "OK" and self.lang in sub.programmingLanguage.lower():
                         solved_with_lang += 1
-            out.by_handle.append(str(solved_with_lang))
+            out.by_handle.append(solved_with_lang)
         return out
 
 
@@ -113,9 +125,19 @@ class CouponCmd(BaseModel):
         c.coupons = CouponCmd(available_coupons=int(mat[1]))
         return c.coupons.generate_output
 
-    def assign_coupons(self, global_state: GlobalState):
+    def apply_coupons(self, global_state: GlobalState):
         for handle_state in global_state.by_handle.values():
+            coupon_submissions: list[Submission] = []
+            for contest in handle_state.by_contest.values():
+                for submission in contest.by_index.values():
+                    if submission.synthetic.points_with_coupon is not None:
+                        coupon_submissions.append(submission)
+            coupon_submissions.sort(key=lambda sub: sub.synthetic.points_with_coupon or 0, reverse=True)
+
             handle_state.available_coupons = self.available_coupons
+            handle_state.used_coupons = min(len(coupon_submissions), self.available_coupons)
+            for sub in coupon_submissions[: handle_state.used_coupons]:
+                sub.synthetic.points = sub.synthetic.points_with_coupon
 
     def generate_output(self, global_state: GlobalState) -> CommandOutput:
         out = CommandOutput(by_handle=[])
@@ -145,7 +167,34 @@ class RoundCmd(BaseModel):
                     for sub in contest.by_index.values():
                         if sub.verdict == "OK" and sub.author.participantType == "CONTESTANT":
                             count += 1
-            out.by_handle.append(str(count))
+            out.by_handle.append(count)
+        return out
+
+
+class TimeframeCmd(BaseModel):
+    start: datetime
+    end: datetime
+    valid: bool
+
+    @staticmethod
+    def parse(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
+        if c.timeframe.valid:
+            raise RuntimeError("exactly 1 timeframe command must be specified")
+        start = datetime.fromisoformat(mat[1])
+        end = datetime.fromisoformat(mat[2])
+        c.timeframe = TimeframeCmd(start=start, end=end, valid=True)
+        return c.timeframe.generate_output
+
+    def generate_output(self, global_state: GlobalState) -> CommandOutput:
+        out = CommandOutput(by_handle=[])
+        for handle in global_state.handles:
+            handle_state = global_state.by_handle[handle]
+            submission_count = 0
+            for contest in handle_state.by_contest.values():
+                for sub in contest.by_index.values():
+                    if sub.verdict == "OK":
+                        submission_count += 1
+            out.by_handle.append(f"{submission_count} OK submissions")
         return out
 
 
@@ -154,26 +203,37 @@ class Commands(BaseModel):
     lang: list[LangCmd] = []
     coupons: CouponCmd | None = None
     rounds: list[RoundCmd] = []
+    timeframe: TimeframeCmd = TimeframeCmd(start=datetime.now(), end=datetime.now(), valid=False)
 
 
 COMMANDS: dict[re.Pattern[str], CommandParser] = {
-    re.compile(r"^contest:(\d+):(.+)$"): ContestCmd.parse,
+    re.compile(r"^contest:(\d+)(?::(.+))?$"): ContestCmd.parse,
     re.compile(r"^lang:(.+)$"): LangCmd.parse,
     re.compile(r"^coupons:(\d+)$"): CouponCmd.parse,
-    re.compile(r"^rounds:(.+)$"): CouponCmd.parse,
-    # TODO: Filter by submission time
+    re.compile(r"^rounds:(.+)$"): RoundCmd.parse,
+    re.compile(r"^timeframe:([^:]+):([^:]+)$"): TimeframeCmd.parse,
 }
 
 
-def rank_submission(sub: Submission | None) -> int:
+def rank_submission(commands: Commands, sub: Submission | None) -> int:
     """
     If there are multiple submissions to a problem, decide which one is more important based on this criteria.
     The largest rank overrides smaller ranks.
     Ties are broken by submission ID (newer submission override older ones).
     """
+    # Empty submissions have 0 priority
     if sub is None:
         return 0
+    # Out-of-timeframe submissions have negative priority (ie. they don't even count)
+    if (
+        sub.creationTimeSeconds is None
+        or sub.creationTimeSeconds < commands.timeframe.start.timestamp()
+        or sub.creationTimeSeconds > commands.timeframe.end.timestamp()
+    ):
+        return -1
+    # OK submissions have higher priority
     if sub.verdict == "OK":
+        # In-contest submissions have higher priority than practice and virtual submissions
         if sub.author.participantType == "CONTESTANT":
             return 3
         else:
@@ -195,16 +255,31 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
                 break
         else:
             raise RuntimeError(f"unrecognized command '{raw_cmd}'")
+    if not commands.timeframe.valid:
+        raise RuntimeError("a timeframe command must be provided!")
+    global_state = GlobalState(handles=handles)
 
     # Fetch user submissions
-    global_state = GlobalState(handles=handles)
     for handle in handles:
+        global_state.by_handle[handle]
         for submission in codeforces.user_status(handle):
-            contest_id = "" if submission.contestId is None else str(submission.contestId)
-            contest = global_state.by_handle[handle].by_contest[contest_id]
-            prev = contest.by_index.get(submission.problem.index, None)
-            if rank_submission(submission) > rank_submission(prev):
-                contest.by_index[submission.problem.index] = submission
+            global_state.by_handle[handle].insert_submission(submission, commands)
+
+    # Fetch specific contest submissions
+    seen_contests = {
+        contest_id for handle_state in global_state.by_handle.values() for contest_id in handle_state.by_contest.keys()
+    }
+    for contest in commands.contest:
+        if contest.contest_id in seen_contests:
+            continue
+        submissions = codeforces.contest_status(contest.contest_id)
+        for submission in submissions:
+            if len(submission.author.members) != 1:
+                continue
+            handle = submission.author.members[0].handle
+            handle_state = global_state.by_handle.get(handle, None)
+            if handle_state is not None:
+                handle_state.insert_submission(submission, commands)
 
     # Fetch rated contests
     if commands.rounds:
@@ -214,9 +289,9 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
                 contest_id = str(rating.contestId)
                 global_state.by_handle[handle].by_contest[contest_id].rated_name = rating.contestName
 
-    # Assign coupons
+    # Apply coupons
     if commands.coupons:
-        commands.coupons.assign_coupons(global_state)
+        commands.coupons.apply_coupons(global_state)
 
     # Compute points for each problem
     for cmd in commands.contest:
