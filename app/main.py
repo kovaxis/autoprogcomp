@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import os.path
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -11,22 +10,11 @@ from googleapiclient.discovery import build  # pyright: ignore[reportUnknownVari
 if TYPE_CHECKING:
     from googleapiclient._apis.sheets.v4 import SheetsResource  # pyright: ignore[reportMissingModuleSource]
 
+from app import logic
 from app.settings import config
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-
-
-def compute(handles: list[str], commands: list[str]) -> list[list[str]]:
-    # TODO: Contest semanales
-    # TODO: Asistencia
-    # TODO: Competencias oficiales
-    # TODO: Bonus C++
-    # TODO: Bonus Codeforces
-    # TODO: Bonus problema explicado
-    # TODO: Cupones de atraso
-    # TODO: Nota final
-    pass
 
 
 def compute_results(in_mat: list[list[str]]) -> list[list[str]]:
@@ -42,11 +30,11 @@ def compute_results(in_mat: list[list[str]]) -> list[list[str]]:
         if cmd:
             commands.append((j, cmd))
     # Call the inner compute function to compute the result of handle x command matrix
-    out = compute([h for _, h in handles], [c for _, c in commands])
+    out = logic.compute([c for _, c in commands], [h for _, h in handles])
     # Spread the results around the result matrix
     out_mat = [["" for _ in range(len(in_mat[0]) - 1)] for _ in range(len(in_mat) - 1)]
-    for (i, _), outlist in zip(handles, out):
-        for (j, _), outelem in zip(commands, outlist):
+    for (i, _), cmd_out in zip(handles, out):
+        for (j, _), outelem in zip(commands, cmd_out.by_handle):
             out_mat[i][j] = outelem
     return out_mat
 
@@ -64,8 +52,8 @@ def authorize() -> Credentials:
         if creds and creds.expired and creds.refresh_token:  # pyright: ignore[reportUnknownMemberType]
             creds.refresh(Request())  # pyright: ignore[reportUnknownMemberType]
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-            creds = flow.run_local_server(port=0)
+            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
+            creds = flow.run_local_server(port=0)  # pyright: ignore[reportUnknownMemberType]
         # Save the credentials for the next run
         with open("token.json", "w") as token:
             token.write(creds.to_json())  # pyright: ignore[reportUnknownMemberType]

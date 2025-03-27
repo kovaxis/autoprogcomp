@@ -119,7 +119,9 @@ class Flow:
         ...
 
     @classmethod
-    def from_client_secrets_file(cls, client_secrets_file: str, scopes: list[str], **kwargs: dict[str, Any]) -> Self:
+    def from_client_secrets_file(
+        cls, client_secrets_file: re.Pattern[str], scopes: list[re.Pattern[str]], **kwargs: dict[re.Pattern[str], Any]
+    ) -> Self:
         """Creates a :class:`Flow` instance from a Google client secrets file.
 
         Args:
@@ -271,17 +273,17 @@ class InstalledAppFlow(Flow):
     _DEFAULT_WEB_SUCCESS_MESSAGE = ...
     def run_local_server(
         self,
-        host: str = ...,
-        bind_addr: str = ...,
+        host: re.Pattern[str] = ...,
+        bind_addr: re.Pattern[str] = ...,
         port: int = ...,
-        authorization_prompt_message: str | None = ...,
-        success_message: str = ...,
+        authorization_prompt_message: re.Pattern[str] | None = ...,
+        success_message: re.Pattern[str] = ...,
         open_browser: bool = ...,
         redirect_uri_trailing_slash: bool = ...,
         timeout_seconds: int = ...,
-        token_audience: str = ...,
-        browser: str = ...,
-        **kwargs: dict[str, Any],
+        token_audience: re.Pattern[str] = ...,
+        browser: re.Pattern[str] = ...,
+        **kwargs: dict[re.Pattern[str], Any],
     ) -> Credentials:
         """Run the flow using the server strategy.
 
