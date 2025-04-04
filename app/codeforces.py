@@ -132,6 +132,9 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     param_list.append(("apiSig", api_sig))
     url = f"https://codeforces.com/api/{method}?{urlencode(param_list)}"
     resp = requests.get(url)
+    if resp.status_code < 200 or resp.status_code >= 300:
+        print(f"failed response content: {resp.text}")
+        raise RuntimeError(f"HTTP error {resp.status_code} {resp.reason}")
     result = TypeAdapter[CodeforcesOk[T] | CodeforcesFailed](CodeforcesOk[model] | CodeforcesFailed).validate_json(
         resp.text
     )
