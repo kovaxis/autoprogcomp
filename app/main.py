@@ -124,7 +124,7 @@ def main():
         sheet.values().update(
             spreadsheetId=config.spreadsheet_id,
             range=a1_range(config.sheet_name, (0, 0), (0, 0)),
-            body={"values": [[f"ERROR: {e}"]]},
+            body={"values": [[f"ERROR ({updtime}): {e}"]]},
             valueInputOption="RAW",
         ).execute()
         raise e
