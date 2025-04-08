@@ -22,9 +22,9 @@ def wait_until_next_run():
 
 def recurrent():
     while True:
-        wait_until_next_run()
         print("updating spreadsheet...")
         main.main()
+        wait_until_next_run()
 
 
 if __name__ == "__main__":
