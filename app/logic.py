@@ -1,13 +1,16 @@
+import logging
 import re
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
 from app import codeforces
-from app.codeforces import Submission
+from app.codeforces import Contest, Submission
+
+log = logging.getLogger("autoprogcomp-logic")
 
 
 class ContestState(BaseModel):
@@ -42,7 +45,7 @@ class CommandOutput(BaseModel):
 
 
 CommandOutputGenerator = Callable[[GlobalState], CommandOutput]
-CommandParser = Callable[["Commands", re.Match[str]], CommandOutputGenerator]
+CommandParser = Callable[["Commands", re.Match[str]], CommandOutputGenerator | None]
 
 
 class ContestCmd(BaseModel):
@@ -50,20 +53,53 @@ class ContestCmd(BaseModel):
     points_by_index: dict[re.Pattern[str], int]
 
     @staticmethod
-    def parse(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
+    def new(c: "Commands", contest_id: str, points_mapping: str | None) -> CommandOutputGenerator:
         points_by_index: dict[re.Pattern[str], int] = {}
-        if mat[2] is None:
+        if points_mapping is None:
             points_by_index[re.compile(r".*")] = 1
         else:
-            for mapping in mat[2].split(","):
+            for mapping in points_mapping.split(","):
                 mapping_mat = re.fullmatch(r"([^=]+)=(\d+)", mapping)
                 if mapping_mat is None:
                     raise RuntimeError(f"invalid problem point mapping '{mapping}'")
                 pat = re.compile(mapping_mat[1], re.IGNORECASE)
                 points_by_index[pat] = int(mapping_mat[2])
-        cmd = ContestCmd(contest_id=mat[1], points_by_index=points_by_index)
+        cmd = ContestCmd(contest_id=contest_id, points_by_index=points_by_index)
         c.contest.append(cmd)
         return cmd.generate_output
+
+    @staticmethod
+    def parse_from_id(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
+        return ContestCmd.new(c, mat[1], mat[2])
+
+    @staticmethod
+    def parse_from_group_and_time(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator | None:
+        group_id, start, end, points_mapping = mat
+        start = datetime.fromisoformat(start)
+        end = datetime.fromisoformat(end)
+
+        contests_for_group = c.contests_by_group.get(group_id, None)
+        if contests_for_group is None:
+            contests_for_group = {str(contest.id): contest for contest in codeforces.contest_list(group_code=group_id)}
+            c.contests_by_group[group_id] = contests_for_group
+
+        contest_id = None
+        cur_delta = timedelta.max
+        for contest in contests_for_group.values():
+            t = contest.startTimeSeconds
+            if t is None:
+                continue
+            t = datetime.fromtimestamp(t)
+            if t < start or t > end:
+                continue
+            if t - start < cur_delta:
+                contest_id = str(contest.id)
+                cur_delta = t - start
+        if contest_id is None:
+            log.warning("no contest found for group %s and timerange %s to %s, skipping", group_id, start, end)
+            return None
+
+        return ContestCmd.new(c, contest_id, points_mapping)
 
     def compute_points(self, global_state: GlobalState):
         for handle_state in global_state.by_handle.values():
@@ -199,6 +235,8 @@ class TimeframeCmd(BaseModel):
 
 
 class Commands(BaseModel):
+    contests_by_group: dict[str, dict[str, Contest]] = {}
+
     contest: list[ContestCmd] = []
     lang: list[LangCmd] = []
     coupons: CouponCmd | None = None
@@ -207,7 +245,8 @@ class Commands(BaseModel):
 
 
 COMMANDS: dict[re.Pattern[str], CommandParser] = {
-    re.compile(r"^contest:(\d+)(?::(.+))?$"): ContestCmd.parse,
+    re.compile(r"^contest:(\d+)(?::(.+))?$"): ContestCmd.parse_from_id,
+    re.compile(r"^contest:([^:]+):([^:]+):([^:]+):(?::(.+))?$"): ContestCmd.parse_from_group_and_time,
     re.compile(r"^lang:(.+)$"): LangCmd.parse,
     re.compile(r"^coupons:(\d+)$"): CouponCmd.parse,
     re.compile(r"^rounds:(.+)$"): RoundCmd.parse,
@@ -251,7 +290,8 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
             mat = pat.fullmatch(raw_cmd)
             if mat:
                 output_generator = parser(commands, mat)
-                output_generators.append(output_generator)
+                if output_generator is not None:
+                    output_generators.append(output_generator)
                 break
         else:
             raise RuntimeError(f"unrecognized command '{raw_cmd}'")

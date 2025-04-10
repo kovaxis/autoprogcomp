@@ -99,6 +99,52 @@ class RatingChange(BaseModel):
     "User rating after the contest."
 
 
+class Contest(BaseModel):
+    id: int
+    name: str
+    "Localized."
+    type: Literal["CF", "IOI", "ICPC"]
+    "Scoring system used for the contest."
+    phase: Literal["BEFORE", "CODING", "PENDING_SYSTEM_TEST", "SYSTEM_TEST", "FINISHED"]
+    frozen: bool
+    "If true, then the ranklist for the contest is frozen and shows only submissions, created before freeze."
+    durationSeconds: int
+    "Duration of the contest in seconds."
+    freezeDurationSeconds: int | None = None
+    "The ranklist freeze duration of the contest in seconds if any."
+    startTimeSeconds: int | None = None
+    "Contest start time in unix format."
+    relativeTimeSeconds: int | None = None
+    "Number of seconds, passed after the start of the contest. Can be negative."
+    preparedBy: str | None = None
+    "Handle of the user, how created the contest."
+    websiteUrl: str | None = None
+    "URL for contest-related website."
+    description: str | None = None
+    "Localized."
+    difficulty: int | None = None
+    "From 1 to 5. Larger number means more difficult problems."
+    kind: str | None = None
+    """
+    Localized.
+    Human-readable type of the contest from the following categories:
+    - Official ICPC Contest
+    - Official School Contest
+    - Opencup Contest
+    - School/University/City/Region Championship
+    - Training Camp Contest
+    - Official International Personal Contest
+    - Training Contest.
+    """
+    icpcRegion: str | None = None
+    "Localized. Name of the Region for official ICPC contests."
+    country: str | None = None
+    "Localized."
+    city: str | None = None
+    "Localized."
+    season: str | None = None
+
+
 T = TypeVar("T")
 
 
@@ -153,6 +199,15 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
         raise CodeforcesException("api", f"codeforces api error: {result.comment}")
     resp.raise_for_status()
     return result.result
+
+
+def contest_list(*, gym: bool | None = None, group_code: str | None = None) -> list[Contest]:
+    params: dict[str, str] = {}
+    if gym is not None:
+        params["gym"] = "true" if gym else "false"
+    if group_code is not None:
+        params["groupCode"] = group_code
+    return call_any("contest.list", params, list[Contest])
 
 
 def contest_status(contest_id: str) -> list[Submission]:
