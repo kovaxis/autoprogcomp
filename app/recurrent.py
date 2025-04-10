@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app import main as app_main
 from app.settings import config
 
-log = logging.getLogger("autoprogcomp-recurrent")
+log = logging.getLogger("recurrent")
 
 
 def wait_until_next_run():
@@ -24,7 +24,7 @@ def wait_until_next_run():
 
 
 def main():
-    logging.basicConfig()
+    app_main.setup_logging()
     while True:
         try:
             app_main.run()

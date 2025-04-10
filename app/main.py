@@ -161,8 +161,12 @@ def run():
     log.info("run result: %s", msg)
 
 
+def setup_logging():
+    logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO").upper())
+
+
 def main():
-    logging.basicConfig()
+    setup_logging()
     run()
 
 

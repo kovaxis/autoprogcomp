@@ -6,12 +6,12 @@ from typing import Generic, Literal, TypeVar
 from urllib.parse import urlencode
 
 import requests
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from app.settings import config
 from app.synthetic import SubmissionSynthetic
 
-log = logging.getLogger("autoprogcomp-codeforces")
+log = logging.getLogger("codeforces")
 
 
 class Problem(BaseModel):
@@ -178,7 +178,7 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
         to_sleep = _last_codeforces_call + API_COOLDOWN - now
         time.sleep(to_sleep)
     _last_codeforces_call = now
-    log.info("calling codeforces api: %s %s", method, params)
+    log.info("calling api: %s %s", method, params)
     timestamp = round(time.time())
     rand = "".join(random.choices("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", k=6))
     params["apiKey"] = config.codeforces_apikey
@@ -189,16 +189,27 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     param_list.append(("apiSig", api_sig))
     url = f"https://codeforces.com/api/{method}?{urlencode(param_list)}"
     resp = requests.get(url)
+    result = None
+    try:
+        result = TypeAdapter[CodeforcesOk[T] | CodeforcesFailed](CodeforcesOk[model] | CodeforcesFailed).validate_json(
+            resp.text
+        )
+    except ValidationError as e:
+        result = e
+    if isinstance(result, CodeforcesFailed):
+        comment = result.comment
+    else:
+        comment = "-"
     if resp.status_code < 200 or resp.status_code >= 300:
         log.error("failed response content: %s", resp.text)
-        raise CodeforcesException(resp.status_code, f"HTTP error {resp.status_code} {resp.reason}")
-    result = TypeAdapter[CodeforcesOk[T] | CodeforcesFailed](CodeforcesOk[model] | CodeforcesFailed).validate_json(
-        resp.text
-    )
-    if isinstance(result, CodeforcesFailed):
-        raise CodeforcesException("api", f"codeforces api error: {result.comment}")
-    resp.raise_for_status()
-    return result.result
+        raise CodeforcesException(resp.status_code, f"HTTP error {resp.status_code} {resp.reason or '-'} {comment}")
+    match result:
+        case CodeforcesOk():
+            return result.result
+        case ValidationError():
+            raise CodeforcesException("api", f"codeforces api validation error: {result}") from result
+        case CodeforcesFailed():
+            raise CodeforcesException("api", f"codeforces api error: {comment}")
 
 
 def contest_list(*, gym: bool | None = None, group_code: str | None = None) -> list[Contest]:

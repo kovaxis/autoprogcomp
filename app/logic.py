@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app import codeforces
 from app.codeforces import Contest, Submission
 
-log = logging.getLogger("autoprogcomp-logic")
+log = logging.getLogger("autoprogcomp")
 
 
 class ContestState(BaseModel):
