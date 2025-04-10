@@ -16,12 +16,16 @@ Creado para el curso IIC2552 Taller de Programación Avanzada.
 ## Comandos
 
 Por defecto, al correr `autoprogcomp` este descarga la hoja `Codeforces` del spreadsheet configurado.
-Esta hoja debiera contener en la columna `A2:A` handles de Codeforces de alumnos, y en la fila `B1:1` una serie de "comandos".
+Esta hoja debiera en la columna `A2:A9999` contener handles de Codeforces de alumnos, y en la fila `B1:ZZZZ1` una serie de "comandos".
 
 Los comandos pueden ser:
 
 - `timeframe:<startDate>:<endDate>`: Este comando debe aparecer exactamente 1 vez. Indicar el rango de fechas en que considerar submissions.
-- `contest:<contestId>`/`contest:<contestId>:a=1,b=2,c=3`: Contar problemas resueltos por el usuario en el contest `contestId` (numérico). Opcionalmente se puede entregar un mapeo de problemas a puntajes.
+- `contest`: Contar problemas resueltos por cada usuario en un contest particular, asignando una cierta cantidad de puntos a cada problema. Se pueden utilizar 4 sintaxis:
+    - `contest:<contestId>`: Revisar el contest con ID `contestId` (numérico), y cada problema vale 1 punto. Equivalente a `contest:<contestId>:.*=1`.
+    - `contest:<contestId>:a=1,b=2,c=3`: Revisar el contest con ID `contestId` (numérico), y asignar distinto puntaje a cada letra de problema. Se acepta regex para las letras de los problemas.
+    - `contest:<groupCode>:<startDate>:a=1,b=2,c=3`: Revisar el primer contest del grupo `groupCode` (alfanumérico), que comience entre `startDate` y `startDate + 24h`.
+    - `contest:<groupCode>:<rangeStart>:<rangeEnd>:a=1,b=2,c=3`: Revisar el primer contest del grupo `groupCode` (alfanumérico), que comience entre `rangeStart` y `rangeEnd`.
 - `lang:<language>`: Contar cuántos problemas se han resuelto usando el lenguaje dado. Se considera que un problema se resolvió con `language` si `language` es un substring del lenguaje utilizado en la última submission OK del problema (case-insensitive).
-- `coupons:<availableCoupons>`: Cuántos cupones tienen disponibles los alumnos. Los cupones permiten que las resoluciones de problemas fuera de tiempo cuenten para efectos del comando `contest`.
+- `coupons:<availableCoupons>`: Cuántos cupones tienen disponibles los alumnos. Los cupones permiten que las resoluciones de problemas fuera de tiempo cuenten para efectos del comando `contest`. Puede aparecer a lo más 1 vez.
 - `rounds:<regex>`: Contar cuántos problemas se resolvieron en rondas oficiales (rated rounds) tales que el nombre de la ronda matchee con el patrón `regex`.
