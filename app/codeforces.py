@@ -156,24 +156,42 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
 
 
 def contest_status(contest_id: str) -> list[Submission]:
-    return call_any(
-        "contest.status",
-        {"contestId": contest_id},
-        list[Submission],
-    )
+    try:
+        return call_any(
+            "contest.status",
+            {"contestId": contest_id},
+            list[Submission],
+        )
+    except CodeforcesException as e:
+        if e.status_code == 404:
+            raise CodeforcesException(e.status_code, f"Contest with ID '{contest_id}' not found") from e
+        else:
+            raise e
 
 
 def user_status(handle: str) -> list[Submission]:
-    return call_any(
-        "user.status",
-        {"handle": handle},
-        list[Submission],
-    )
+    try:
+        return call_any(
+            "user.status",
+            {"handle": handle},
+            list[Submission],
+        )
+    except CodeforcesException as e:
+        if e.status_code == 404:
+            raise CodeforcesException(e.status_code, f"User with handle '{handle}' not found") from e
+        else:
+            raise e
 
 
 def user_rating(handle: str) -> list[RatingChange]:
-    return call_any(
-        "user.rating",
-        {"handle": handle},
-        list[RatingChange],
-    )
+    try:
+        return call_any(
+            "user.rating",
+            {"handle": handle},
+            list[RatingChange],
+        )
+    except CodeforcesException as e:
+        if e.status_code == 404:
+            raise CodeforcesException(e.status_code, f"User with handle '{handle}' not found") from e
+        else:
+            raise e
