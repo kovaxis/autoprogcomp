@@ -41,11 +41,15 @@ class GlobalState(BaseModel):
 
 
 class CommandOutput(BaseModel):
-    by_handle: list[str | int]
+    by_handle: list[str | int | None]
 
 
 CommandOutputGenerator = Callable[[GlobalState], CommandOutput]
-CommandParser = Callable[["Commands", re.Match[str]], CommandOutputGenerator | None]
+CommandParser = Callable[["Commands", re.Match[str]], CommandOutputGenerator]
+
+
+def generate_empty_output(global_state: GlobalState) -> CommandOutput:
+    return CommandOutput(by_handle=[None for _handle in global_state.handles])
 
 
 class ContestCmd(BaseModel):
@@ -73,10 +77,18 @@ class ContestCmd(BaseModel):
         return ContestCmd.new(c, mat[1], mat[2])
 
     @staticmethod
-    def parse_from_group_and_time(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator | None:
-        group_id, start, end, points_mapping = mat
-        start = datetime.fromisoformat(start)
-        end = datetime.fromisoformat(end)
+    def parse_from_group_and_time(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
+        group_id: str = mat[1]
+        start_arg: str = mat[2]
+        arg3: str = mat[3]
+        arg4: str | None = mat[4]
+        start = datetime.fromisoformat(start_arg)
+        if arg4 is None:
+            end = start + timedelta(days=1)
+            points_mapping = arg3
+        else:
+            end = datetime.fromisoformat(arg3)
+            points_mapping = arg4
 
         contests_for_group = c.contests_by_group.get(group_id, None)
         if contests_for_group is None:
@@ -97,7 +109,7 @@ class ContestCmd(BaseModel):
                 cur_delta = t - start
         if contest_id is None:
             log.warning("no contest found for group %s and timerange %s to %s, skipping", group_id, start, end)
-            return None
+            return generate_empty_output
 
         return ContestCmd.new(c, contest_id, points_mapping)
 
@@ -246,7 +258,7 @@ class Commands(BaseModel):
 
 COMMANDS: dict[re.Pattern[str], CommandParser] = {
     re.compile(r"^contest:(\d+)(?::(.+))?$"): ContestCmd.parse_from_id,
-    re.compile(r"^contest:([^:]+):([^:]+):([^:]+):(?::(.+))?$"): ContestCmd.parse_from_group_and_time,
+    re.compile(r"^contest:([^:]+):([^:]+):([^:]+)(?::(.+))?$"): ContestCmd.parse_from_group_and_time,
     re.compile(r"^lang:(.+)$"): LangCmd.parse,
     re.compile(r"^coupons:(\d+)$"): CouponCmd.parse,
     re.compile(r"^rounds:(.+)$"): RoundCmd.parse,
@@ -290,8 +302,7 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
             mat = pat.fullmatch(raw_cmd)
             if mat:
                 output_generator = parser(commands, mat)
-                if output_generator is not None:
-                    output_generators.append(output_generator)
+                output_generators.append(output_generator)
                 break
         else:
             raise RuntimeError(f"unrecognized command '{raw_cmd}'")

@@ -39,10 +39,13 @@ def compute_results(in_mat: list[list[str]]) -> list[list[str]]:
     out_mat = [["" for _ in range(len(in_mat[0]) - 1)] for _ in range(len(in_mat) - 1)]
     for (j, _), cmd_out in zip(commands, out):
         for (i, _), outelem in zip(handles, cmd_out.by_handle):
-            if isinstance(outelem, str):
-                out_mat[i][j] = f"'{outelem}"
-            if isinstance(outelem, int):
-                out_mat[i][j] = str(outelem)
+            match outelem:
+                case str():
+                    out_mat[i][j] = f"'{outelem}"
+                case int():
+                    out_mat[i][j] = str(outelem)
+                case None:
+                    out_mat[i][j] = ""
     return out_mat
 
 
@@ -150,7 +153,7 @@ def run():
         body={"values": out_mat},
         valueInputOption="USER_ENTERED",
     ).execute()
-    log.info("modifying spreadsheet to indicate successfull status...")
+    log.info("modifying spreadsheet to indicate successful status...")
     msg = f"Updated at {updtime}"
     sheet.values().update(
         spreadsheetId=config.spreadsheet_id,
