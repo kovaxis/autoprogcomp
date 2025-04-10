@@ -10,8 +10,12 @@ from googleapiclient.discovery import build  # pyright: ignore[reportUnknownVari
 if TYPE_CHECKING:
     from googleapiclient._apis.sheets.v4 import SheetsResource  # pyright: ignore[reportMissingModuleSource]
 
+import logging
+
 from app import logic
 from app.settings import config
+
+log = logging.getLogger("autoprogcomp")
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -92,12 +96,16 @@ def a1_range(sheet_name: str, start: tuple[int, int], end: tuple[int, int]) -> s
     return f"'{sheet_name}'!{a1_cell(start[0], start[1])}:{a1_cell(end[0], end[1])}"
 
 
-def main():
+def run():
+    updtime = datetime.now()
+    log.info("running autoprogcomp aggregator... (%s)", updtime)
+
+    log.info("authorizing google account...")
     creds = authorize()
     service: SheetsResource = build("sheets", "v4", credentials=creds)  # pyright: ignore[reportAssignmentType]
 
     # Descargar info del sheets
-    updtime = datetime.now()
+    log.info("fetching google spreadsheet %s...", config.spreadsheet_id)
     sheet: SheetsResource.SpreadsheetsResource = service.spreadsheets()
     in_mat = (
         sheet.values()
@@ -109,6 +117,7 @@ def main():
     ).get("values", [])
 
     # Show "calculating..."
+    log.info("modifying spreadsheet to indicate in-progress status...")
     sheet.values().update(
         spreadsheetId=config.spreadsheet_id,
         range=a1_range(config.sheet_name, (0, 0), (0, 0)),
@@ -118,24 +127,30 @@ def main():
 
     try:
         # Compute results
+        log.info("fetching from codeforces and aggregating data...")
         out_mat: list[list[str]] = compute_results(in_mat)
     except Exception as e:
         # Upload error to sheets
+        msg = f"ERROR ({updtime}): {e}"
+        log.info("error result: %s", msg)
+        log.info("modifying spreadsheet to indicate error...")
         sheet.values().update(
             spreadsheetId=config.spreadsheet_id,
             range=a1_range(config.sheet_name, (0, 0), (0, 0)),
-            body={"values": [[f"ERROR ({updtime}): {e}"]]},
+            body={"values": [[msg]]},
             valueInputOption="RAW",
         ).execute()
         raise e
 
     # Update with results
+    log.info("modifying spreadsheet to upload results")
     sheet.values().update(
         spreadsheetId=config.spreadsheet_id,
         range=a1_range(config.sheet_name, (1, 1), (len(out_mat), len(out_mat[0]) if out_mat else 0)),
         body={"values": out_mat},
         valueInputOption="USER_ENTERED",
     ).execute()
+    log.info("modifying spreadsheet to indicate successfull status...")
     msg = f"Updated at {updtime}"
     sheet.values().update(
         spreadsheetId=config.spreadsheet_id,
@@ -143,7 +158,12 @@ def main():
         body={"values": [[msg]]},
         valueInputOption="RAW",
     ).execute()
-    print(msg)
+    log.info("run result: %s", msg)
+
+
+def main():
+    logging.basicConfig()
+    run()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import logging
 import random
 import time
 from hashlib import sha512
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from app.settings import config
 from app.synthetic import SubmissionSynthetic
+
+log = logging.getLogger("autoprogcomp-codeforces")
 
 
 class Problem(BaseModel):
@@ -114,6 +117,14 @@ _last_codeforces_call: float | None = None
 API_COOLDOWN: float = 1
 
 
+class CodeforcesException(Exception):
+    status_code: int | Literal["api"]
+
+    def __init__(self, status_code: int | Literal["api"], msg: str):
+        self.status_code = status_code
+        super().__init__(msg)
+
+
 def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     global _last_codeforces_call  # noqa: PLW0603
     now = time.monotonic()
@@ -121,7 +132,7 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
         to_sleep = _last_codeforces_call + API_COOLDOWN - now
         time.sleep(to_sleep)
     _last_codeforces_call = now
-    print(f"calling codeforces api: {method} {params}")
+    log.info("calling codeforces api: %s %s", method, params)
     timestamp = round(time.time())
     rand = "".join(random.choices("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", k=6))
     params["apiKey"] = config.codeforces_apikey
@@ -133,13 +144,13 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     url = f"https://codeforces.com/api/{method}?{urlencode(param_list)}"
     resp = requests.get(url)
     if resp.status_code < 200 or resp.status_code >= 300:
-        print(f"failed response content: {resp.text}")
-        raise RuntimeError(f"HTTP error {resp.status_code} {resp.reason}")
+        log.error("failed response content: %s", resp.text)
+        raise CodeforcesException(resp.status_code, f"HTTP error {resp.status_code} {resp.reason}")
     result = TypeAdapter[CodeforcesOk[T] | CodeforcesFailed](CodeforcesOk[model] | CodeforcesFailed).validate_json(
         resp.text
     )
     if isinstance(result, CodeforcesFailed):
-        raise RuntimeError(f"codeforces api error: {result.comment}")
+        raise CodeforcesException("api", f"codeforces api error: {result.comment}")
     resp.raise_for_status()
     return result.result
 
