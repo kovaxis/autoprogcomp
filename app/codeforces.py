@@ -14,6 +14,10 @@ from app.synthetic import SubmissionSynthetic
 log = logging.getLogger("codeforces")
 
 
+API_COOLDOWN: float = 2
+RETRY_DELAY: float = 10
+
+
 class Problem(BaseModel):
     contestId: int | None = None
     problemsetName: str | None = None
@@ -160,8 +164,6 @@ class CodeforcesFailed(BaseModel):
 
 _last_codeforces_call: float | None = None
 
-API_COOLDOWN: float = 1
-
 
 class CodeforcesException(Exception):
     status_code: int | Literal["api"]
@@ -189,6 +191,12 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     param_list.append(("apiSig", api_sig))
     url = f"https://codeforces.com/api/{method}?{urlencode(param_list)}"
     resp = requests.get(url)
+    tries = 1
+    while (resp.status_code == 502 or resp.status_code == 504) and tries < 3:
+        log.warning("got error %s, retrying in %s seconds...", resp.status_code, RETRY_DELAY)
+        time.sleep(RETRY_DELAY)
+        resp = requests.get(url)
+        tries += 1
     result = None
     try:
         result = TypeAdapter[CodeforcesOk[T] | CodeforcesFailed](CodeforcesOk[model] | CodeforcesFailed).validate_json(
