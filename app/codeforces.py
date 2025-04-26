@@ -14,10 +14,6 @@ from app.synthetic import SubmissionSynthetic
 log = logging.getLogger("codeforces")
 
 
-API_COOLDOWN: float = 2
-RETRY_DELAY: float = 10
-
-
 class Problem(BaseModel):
     contestId: int | None = None
     problemsetName: str | None = None
@@ -176,8 +172,8 @@ class CodeforcesException(Exception):
 def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     global _last_codeforces_call  # noqa: PLW0603
     now = time.monotonic()
-    if _last_codeforces_call is not None and now - _last_codeforces_call < API_COOLDOWN:
-        to_sleep = _last_codeforces_call + API_COOLDOWN - now
+    if _last_codeforces_call is not None and now - _last_codeforces_call < config.codeforces_cooldown:
+        to_sleep = _last_codeforces_call + config.codeforces_cooldown - now
         time.sleep(to_sleep)
     _last_codeforces_call = now
     log.info("calling api: %s %s", method, params)
@@ -192,9 +188,9 @@ def call_any(method: str, params: dict[str, str], model: type[T]) -> T:
     url = f"https://codeforces.com/api/{method}?{urlencode(param_list)}"
     resp = requests.get(url)
     tries = 1
-    while (resp.status_code == 502 or resp.status_code == 504) and tries < 3:
-        log.warning("got error %s, retrying in %s seconds...", resp.status_code, RETRY_DELAY)
-        time.sleep(RETRY_DELAY)
+    while (resp.status_code == 502 or resp.status_code == 504) and tries < config.codeforces_max_retries:
+        log.warning("got error %s, retrying in %s seconds...", resp.status_code, config.codeforces_retry_delay)
+        time.sleep(config.codeforces_retry_delay)
         resp = requests.get(url)
         tries += 1
     result = None

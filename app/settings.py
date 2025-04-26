@@ -17,6 +17,9 @@ class ConfigVars(BaseModel):
     spreadsheet_id: str
     sheet_name: str = "Codeforces"
     schedule: Schedule = Schedule(hour=0, minute=0)
+    codeforces_cooldown: float = 2
+    codeforces_retry_delay: float = 10
+    codeforces_max_retries: int = 3
 
 
 T = TypeVar("T", bound=BaseModel)
