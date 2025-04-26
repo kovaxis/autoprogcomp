@@ -340,13 +340,13 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
                 contest_id = str(rating.contestId)
                 global_state.by_handle[handle].by_contest[contest_id].rated_name = rating.contestName
 
-    # Apply coupons
-    if commands.coupons:
-        commands.coupons.apply_coupons(global_state)
-
     # Compute points for each problem
     for cmd in commands.contest:
         cmd.compute_points(global_state)
+
+    # Apply coupons
+    if commands.coupons:
+        commands.coupons.apply_coupons(global_state)
 
     # Generate final output
     output: list[CommandOutput] = []
