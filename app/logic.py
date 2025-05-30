@@ -6,10 +6,9 @@ from datetime import datetime, timedelta
 from typing import Annotated
 
 from pydantic import BaseModel, Field
-from requests import HTTPError
 
 from app import codeforces
-from app.codeforces import Contest, Submission
+from app.codeforces import CodeforcesException, Contest, Submission
 
 log = logging.getLogger("autoprogcomp")
 
@@ -326,7 +325,7 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
             continue
         try:
             submissions = codeforces.contest_status(contest.contest_id)
-        except HTTPError as e:
+        except CodeforcesException as e:
             if "has not started" in str(e):
                 print(f"WARNING: {e}")
                 continue
