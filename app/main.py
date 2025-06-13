@@ -132,7 +132,7 @@ def run():
         # Compute results
         log.info("fetching from codeforces and aggregating data...")
         out_mat: list[list[str]] = compute_results(in_mat)
-    except Exception as e:
+    except BaseException as e:
         # Upload error to sheets
         msg = f"ERROR ({updtime}): {e}"
         log.info("error result: %s", msg)
