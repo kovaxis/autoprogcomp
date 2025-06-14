@@ -1,6 +1,7 @@
 import json
 import os
 from typing import Any, TypeVar
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ class ConfigVars(BaseModel):
     codeforces_apikey: str
     codeforces_secret: str
     spreadsheet_id: str
+    timezone: ZoneInfo
     sheet_name: str = "Codeforces"
     schedule: Schedule = Schedule(hour=0, minute=0)
     codeforces_cooldown: float = 2

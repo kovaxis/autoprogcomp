@@ -38,4 +38,4 @@ include = ["pyproject.toml", "app/**/*.py"]
 line-length = 120
 
 [tool.ruff.lint]
-select = ['E', 'F', 'W', 'A', 'PLC', 'PLE', 'PLW', 'I', 'RUF', 'UP']
+select = ['E', 'F', 'W', 'A', 'PLC', 'PLE', 'PLW', 'I', 'RUF', 'UP', 'DTZ']

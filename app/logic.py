@@ -2,13 +2,14 @@ import logging
 import re
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
 from app import codeforces
 from app.codeforces import CodeforcesException, Contest, Submission
+from app.settings import config
 
 log = logging.getLogger("autoprogcomp")
 
@@ -82,12 +83,12 @@ class ContestCmd(BaseModel):
         start_arg: str = mat[2]
         arg3: str = mat[3]
         arg4: str | None = mat[4]
-        start = datetime.fromisoformat(start_arg)
+        start = datetime.fromisoformat(start_arg).astimezone(config.timezone)
         if arg4 is None:
             end = start + timedelta(days=1)
             points_mapping = arg3
         else:
-            end = datetime.fromisoformat(arg3)
+            end = datetime.fromisoformat(arg3).astimezone(config.timezone)
             points_mapping = arg4
 
         contests_for_group = c.contests_by_group.get(group_id, None)
@@ -101,7 +102,7 @@ class ContestCmd(BaseModel):
             t = contest.startTimeSeconds
             if t is None:
                 continue
-            t = datetime.fromtimestamp(t)
+            t = datetime.fromtimestamp(t, config.timezone)
             if t < start or t > end:
                 continue
             if t - start < cur_delta:
@@ -228,8 +229,8 @@ class TimeframeCmd(BaseModel):
     def parse(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
         if c.timeframe.valid:
             raise RuntimeError("exactly 1 timeframe command must be specified")
-        start = datetime.fromisoformat(mat[1])
-        end = datetime.fromisoformat(mat[2])
+        start = datetime.fromisoformat(mat[1]).astimezone(config.timezone)
+        end = datetime.fromisoformat(mat[2]).astimezone(config.timezone)
         c.timeframe = TimeframeCmd(start=start, end=end, valid=True)
         return c.timeframe.generate_output
 
@@ -253,7 +254,7 @@ class Commands(BaseModel):
     lang: list[LangCmd] = []
     coupons: CouponCmd | None = None
     rounds: list[RoundCmd] = []
-    timeframe: TimeframeCmd = TimeframeCmd(start=datetime.now(), end=datetime.now(), valid=False)
+    timeframe: TimeframeCmd = TimeframeCmd(start=datetime.now(UTC), end=datetime.now(UTC), valid=False)
 
 
 COMMANDS: dict[re.Pattern[str], CommandParser] = {

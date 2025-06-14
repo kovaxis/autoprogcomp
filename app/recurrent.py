@@ -9,8 +9,15 @@ log = logging.getLogger("recurrent")
 
 
 def wait_until_next_run():
-    now = datetime.now()
-    future = datetime(now.year, now.month, now.day, config.schedule.hour or 0, config.schedule.minute)
+    now = datetime.now(config.timezone)
+    future = datetime(
+        now.year,
+        now.month,
+        now.day,
+        config.schedule.hour or 0,
+        config.schedule.minute,
+        tzinfo=config.timezone,
+    )
     while now.timestamp() >= future.timestamp():
         if config.schedule.hour is None:
             future += timedelta(hours=1)
@@ -20,7 +27,7 @@ def wait_until_next_run():
         to_sleep = (future - now).total_seconds()
         log.info(f"sleeping for {to_sleep} seconds")
         time.sleep(to_sleep)
-        now = datetime.now()
+        now = datetime.now(config.timezone)
 
 
 def main():

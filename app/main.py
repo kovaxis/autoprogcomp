@@ -1,4 +1,5 @@
 import os.path
+import traceback
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -100,7 +101,7 @@ def a1_range(sheet_name: str, start: tuple[int, int], end: tuple[int, int]) -> s
 
 
 def run():
-    updtime = datetime.now()
+    updtime = datetime.now(config.timezone)
     log.info("running autoprogcomp aggregator... (%s)", updtime)
 
     log.info("authorizing google account...")
@@ -137,12 +138,15 @@ def run():
         msg = f"ERROR ({updtime}): {e}"
         log.info("error result: %s", msg)
         log.info("modifying spreadsheet to indicate error...")
-        sheet.values().update(
-            spreadsheetId=config.spreadsheet_id,
-            range=a1_range(config.sheet_name, (0, 0), (0, 0)),
-            body={"values": [[msg]]},
-            valueInputOption="RAW",
-        ).execute()
+        try:
+            sheet.values().update(
+                spreadsheetId=config.spreadsheet_id,
+                range=a1_range(config.sheet_name, (0, 0), (0, 0)),
+                body={"values": [[msg]]},
+                valueInputOption="RAW",
+            ).execute()
+        except BaseException:
+            traceback.print_exc()
         raise e
 
     # Update with results
