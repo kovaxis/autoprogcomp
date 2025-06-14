@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build  # pyright: ignore[reportUnknownVariableType]
@@ -50,24 +51,30 @@ def compute_results(in_mat: list[list[str]]) -> list[list[str]]:
     return out_mat
 
 
-def authorize() -> Credentials:
+def authorize() -> Credentials | service_account.Credentials:
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists("./config/token.json"):
+    if os.path.exists("./config/serviceaccount.json"):
+        log.info("using service account...")
+        return service_account.Credentials.from_service_account_file("./config/serviceaccount.json", scopes=SCOPES)  # pyright: ignore[reportUnknownMemberType]
+    elif os.path.exists("./config/token.json"):
         creds = Credentials.from_authorized_user_file("./config/token.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
     else:
         creds = None
-    # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:  # pyright: ignore[reportUnknownMemberType]
-            creds.refresh(Request())  # pyright: ignore[reportUnknownMemberType]
+        if os.path.exists("./config/credentials.json"):
+            # If there are no (valid) credentials available, let the user log in.
+            if creds and creds.expired and creds.refresh_token:  # pyright: ignore[reportUnknownMemberType]
+                creds.refresh(Request())  # pyright: ignore[reportUnknownMemberType]
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file("./config/credentials.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
+                creds = flow.run_local_server(port=0)  # pyright: ignore[reportUnknownMemberType]
+            # Save the credentials for the next run
+            with open("./config/token.json", "w") as token:
+                token.write(creds.to_json())  # pyright: ignore[reportUnknownMemberType]
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("./config/credentials.json", SCOPES)  # pyright: ignore[reportUnknownMemberType]
-            creds = flow.run_local_server(port=0)  # pyright: ignore[reportUnknownMemberType]
-        # Save the credentials for the next run
-        with open("./config/token.json", "w") as token:
-            token.write(creds.to_json())  # pyright: ignore[reportUnknownMemberType]
+            raise RuntimeError("no `serviceaccount.json` or `credentials.json` google auth file found in `./config`")
 
     return creds
 

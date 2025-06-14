@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY ./pyproject.toml ./uv.lock ./.python-version ./
-RUN uv sync --frozen
+RUN uv sync --frozen --no-dev
 
 # Copy the rest of the app source
 # IMPORTANT: This must be updated if new config or source directories are added
@@ -20,4 +20,4 @@ COPY ./typings/ ./typings/
 VOLUME /app/config
 
 # Run the production single-threaded FastAPI server
-CMD ["uv", "run", "python3", "-m", "app.recurrent"]
+CMD ["uv", "run", "--no-sync", "python", "-m", "app.recurrent"]
