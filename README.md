@@ -31,6 +31,8 @@ Creado para el curso IIC2552 Taller de Programación Avanzada.
 - Con Docker (correr regularmente):
   1. Correr `docker compose up --build --detach`. Se correrá regularmente el scraper, con un horario definido por la variable `SCHEDULE` del `.env`.
 
+6. OJO: Es posible que sea necesario que la cuenta asociada al `CODEFORCES_APIKEY` sea Manager en los contests del grupo.
+
 ## Uso
 
 Por defecto, al correr `autoprogcomp` este descarga la hoja `Codeforces` del spreadsheet configurado.

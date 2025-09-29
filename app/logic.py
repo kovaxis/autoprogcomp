@@ -5,7 +5,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+import json5
+from pydantic import BaseModel, Field, StringConstraints
 
 from app import codeforces
 from app.codeforces import CodeforcesException, Contest, Submission
@@ -54,43 +55,80 @@ def generate_empty_output(global_state: GlobalState) -> CommandOutput:
 
 
 class ContestCmd(BaseModel):
+    class PointMapping(BaseModel):
+        timerange: tuple[int, int] | None
+        mapping: dict[re.Pattern[str], int]
+
+        @staticmethod
+        def compilemapping(mapping: dict[str, int]) -> dict[re.Pattern[str], int]:
+            compiled: dict[re.Pattern[str], int] = {}
+            for pat, delta in mapping.items():
+                compiled[re.compile(pat, re.IGNORECASE)] = delta
+            return compiled
+
     contest_id: str
-    points_by_index: dict[re.Pattern[str], int]
+    point_mappings: list[PointMapping]
+
+    class JsonInput(BaseModel):
+        class JsonInputPoints(BaseModel):
+            range: tuple[int, int] | None = None
+            points: dict[str, int]
+
+        id: Annotated[str, StringConstraints(pattern=r"\d+", max_length=12)] | None = None
+        group: Annotated[str, StringConstraints(pattern=r"[0-9a-zA-Z]+", max_length=12)] | None = None
+        time: str | tuple[str, str] | None = None
+        points: dict[str, int] | list[JsonInputPoints]
 
     @staticmethod
-    def new(c: "Commands", contest_id: str, points_mapping: str | None) -> CommandOutputGenerator:
-        points_by_index: dict[re.Pattern[str], int] = {}
-        if points_mapping is None:
-            points_by_index[re.compile(r".*")] = 1
-        else:
-            for mapping in points_mapping.split(","):
-                mapping_mat = re.fullmatch(r"([^=]+)=(\d+)", mapping)
-                if mapping_mat is None:
-                    raise RuntimeError(f"invalid problem point mapping '{mapping}'")
-                pat = re.compile(mapping_mat[1], re.IGNORECASE)
-                points_by_index[pat] = int(mapping_mat[2])
-        cmd = ContestCmd(contest_id=contest_id, points_by_index=points_by_index)
-        c.contest.append(cmd)
-        return cmd.generate_output
+    def parse_from_json5(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
+        # Parse raw JSON5
+        try:
+            raw = ContestCmd.JsonInput.model_validate(json5.loads(mat[1]))
+
+            # Parse contest ID or get it from group ID + timerange
+            if raw.id is not None:
+                if raw.group is not None or raw.time is not None:
+                    raise RuntimeError("id field is incompatible with group and time")
+                contest_id = raw.id
+            elif raw.group is not None:
+                if raw.time is None:
+                    raise RuntimeError("group field requires time field to be present")
+                elif isinstance(raw.time, str):
+                    start = datetime.fromisoformat(raw.time).astimezone(config.timezone)
+                    end = start + timedelta(days=1)
+                else:
+                    start = datetime.fromisoformat(raw.time[0]).astimezone(config.timezone)
+                    end = datetime.fromisoformat(raw.time[1]).astimezone(config.timezone)
+                contest_id = ContestCmd.id_from_group_and_time(c, raw.group, start, end)
+                if contest_id is None:
+                    log.warning("no contest found for group %s and timerange %s to %s, skipping", raw.group, start, end)
+                    return generate_empty_output
+            else:
+                raise RuntimeError("expected either id field or group field to be set")
+
+            # Parse points
+            points: list[ContestCmd.PointMapping]
+            if isinstance(raw.points, dict):
+                points = [
+                    ContestCmd.PointMapping(timerange=None, mapping=ContestCmd.PointMapping.compilemapping(raw.points))
+                ]
+            else:
+                points = [
+                    ContestCmd.PointMapping(
+                        timerange=points.range, mapping=ContestCmd.PointMapping.compilemapping(points.points)
+                    )
+                    for points in raw.points
+                ]
+
+            # Build command
+            cmd = ContestCmd(contest_id=contest_id, point_mappings=points)
+            c.contest.append(cmd)
+            return cmd.generate_output
+        except Exception as e:
+            raise RuntimeError(f'failed to parse contest command "{mat[0]}": {e}') from e
 
     @staticmethod
-    def parse_from_id(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
-        return ContestCmd.new(c, mat[1], mat[2])
-
-    @staticmethod
-    def parse_from_group_and_time(c: "Commands", mat: re.Match[str]) -> CommandOutputGenerator:
-        group_id: str = mat[1]
-        start_arg: str = mat[2]
-        arg3: str = mat[3]
-        arg4: str | None = mat[4]
-        start = datetime.fromisoformat(start_arg).astimezone(config.timezone)
-        if arg4 is None:
-            end = start + timedelta(days=1)
-            points_mapping = arg3
-        else:
-            end = datetime.fromisoformat(arg3).astimezone(config.timezone)
-            points_mapping = arg4
-
+    def id_from_group_and_time(c: "Commands", group_id: str, start: datetime, end: datetime) -> str | None:
         contests_for_group = c.contests_by_group.get(group_id, None)
         if contests_for_group is None:
             contests_for_group = {str(contest.id): contest for contest in codeforces.contest_list(group_code=group_id)}
@@ -108,11 +146,8 @@ class ContestCmd(BaseModel):
             if t - start < cur_delta:
                 contest_id = str(contest.id)
                 cur_delta = t - start
-        if contest_id is None:
-            log.warning("no contest found for group %s and timerange %s to %s, skipping", group_id, start, end)
-            return generate_empty_output
 
-        return ContestCmd.new(c, contest_id, points_mapping)
+        return contest_id
 
     def compute_points(self, global_state: GlobalState):
         for handle_state in global_state.by_handle.values():
@@ -120,14 +155,21 @@ class ContestCmd(BaseModel):
             if contest is not None:
                 for index, sub in contest.by_index.items():
                     if sub.verdict == "OK":
-                        for pat, points in self.points_by_index.items():
-                            if pat.fullmatch(index):
-                                if sub.author.participantType == "CONTESTANT":
-                                    sub.synthetic.points = max(sub.synthetic.points or 0, points)
-                                else:
-                                    sub.synthetic.points_with_coupon = max(
-                                        sub.synthetic.points_with_coupon or 0, points
-                                    )
+                        for point_mapping in self.point_mappings:
+                            if point_mapping.timerange is None or (
+                                sub.relativeTimeSeconds is not None
+                                and point_mapping.timerange[0] * 60
+                                <= sub.relativeTimeSeconds
+                                <= point_mapping.timerange[1] * 60
+                            ):
+                                for pat, points in point_mapping.mapping.items():
+                                    if pat.fullmatch(index):
+                                        if sub.author.participantType == "CONTESTANT":
+                                            sub.synthetic.points = max(sub.synthetic.points or 0, points)
+                                        else:
+                                            sub.synthetic.points_with_coupon = max(
+                                                sub.synthetic.points_with_coupon or 0, points
+                                            )
 
     def generate_output(self, global_state: GlobalState) -> CommandOutput:
         out = CommandOutput(by_handle=[])
@@ -258,8 +300,7 @@ class Commands(BaseModel):
 
 
 COMMANDS: dict[re.Pattern[str], CommandParser] = {
-    re.compile(r"^contest:(\d+)(?::(.+))?$"): ContestCmd.parse_from_id,
-    re.compile(r"^contest:([^:]+):([^:]+):([^:]+)(?::(.+))?$"): ContestCmd.parse_from_group_and_time,
+    re.compile(r"^contest:(.+)$"): ContestCmd.parse_from_json5,
     re.compile(r"^lang:(.+)$"): LangCmd.parse,
     re.compile(r"^coupons:(\d+)$"): CouponCmd.parse,
     re.compile(r"^rounds:(.+)$"): RoundCmd.parse,

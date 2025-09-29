@@ -16,36 +16,60 @@ log = logging.getLogger("codeforces")
 
 class Problem(BaseModel):
     contestId: int | None = None
+    "Id of the contest, containing the problem."
     problemsetName: str | None = None
+    "Short name of the problemset the problem belongs to."
     index: str
+    "Usually, a letter or letter with digit(s) indicating the problem index in a contest."
     name: str
+    "Localized."
     type: Literal["PROGRAMMING", "QUESTION"]
     points: float | None = None
+    "Maximum amount of points for the problem."
     rating: int | None = None
+    "Problem rating (difficulty)."
     tags: list[str]
+    "Problem tags."
 
 
 class Member(BaseModel):
     handle: str
+    "Codeforces user handle."
     name: str | None = None
+    "User's name if available."
 
 
 class Party(BaseModel):
     contestId: int | None = None
+    "Id of the contest, in which party is participating."
     members: list[Member]
+    "Members of the party."
     participantType: Literal["CONTESTANT", "PRACTICE", "VIRTUAL", "MANAGER", "OUT_OF_COMPETITION"]
     teamId: int | None = None
+    "If party is a team, then it is a unique team id. Otherwise, this field is absent."
     teamName: str | None = None
+    "Localized. If party is a team or ghost, then it is a localized name of the team. Otherwise, it is absent."
     ghost: bool
+    """
+    If true then this party is a ghost. It participated in the contest, but not on Codeforces.
+    For example, Andrew Stankevich Contests in Gym has ghosts of the participants from Petrozavodsk Training Camp.
+    """
     room: int | None = None
+    "Room of the party. If absent, then the party has no room."
     startTimeSeconds: int | None = None
+    "Time, when this party started a contest."
 
 
 class Submission(BaseModel):
     id: int
     contestId: int | None = None
     creationTimeSeconds: int | None = None
+    "Time, when submission was created, in unix-format."
     relativeTimeSeconds: int | None = None
+    """
+    Number of seconds, passed after the start of the contest (or a virtual start for virtual parties),
+    before the submission.
+    """
     problem: Problem
     author: Party
     programmingLanguage: str
@@ -72,10 +96,15 @@ class Submission(BaseModel):
         | None
     ) = None
     testset: str
+    "Testset used for judging the submission."
     passedTestCount: int
+    "Number of passed tests."
     timeConsumedMillis: int
+    "Maximum time in milliseconds, consumed by solution for one test."
     memoryConsumedBytes: int
+    "Maximum memory in bytes, consumed by solution for one test."
     points: float | None = None
+    "Number of scored points for IOI-like contests."
     synthetic: SubmissionSynthetic = Field(default_factory=SubmissionSynthetic)
 
 
