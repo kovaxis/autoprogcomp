@@ -57,14 +57,48 @@ def generate_empty_output(global_state: GlobalState) -> CommandOutput:
 class ContestCmd(BaseModel):
     class PointMapping(BaseModel):
         timerange: tuple[int, int] | None
+        list_of_teams: list[set[str]] = []
+        teams_by_handle: dict[str, list[set[str]]] = {}
+        "Only give points to people on a team."
+        whitelist_teams: bool
         mapping: dict[re.Pattern[str], int]
 
         @staticmethod
-        def compilemapping(mapping: dict[str, int]) -> dict[re.Pattern[str], int]:
+        def new(
+            timerange: tuple[int, int] | None, mapping: dict[str, int], teams: list[list[str]] | None
+        ) -> "ContestCmd.PointMapping":
+            # Compile patterns
             compiled: dict[re.Pattern[str], int] = {}
             for pat, delta in mapping.items():
                 compiled[re.compile(pat, re.IGNORECASE)] = delta
-            return compiled
+
+            # Collate teams
+            list_of_teams = [set(team) for team in (teams or [])]
+            teams_by_handle: dict[str, list[set[str]]] = {}
+            for team in list_of_teams:
+                for member in team:
+                    teams_by_handle.setdefault(member, []).append(team)
+
+            return ContestCmd.PointMapping(
+                timerange=timerange,
+                list_of_teams=list_of_teams,
+                teams_by_handle=teams_by_handle,
+                mapping=compiled,
+                whitelist_teams=teams is not None,
+            )
+
+    class VisitedSubmission(BaseModel):
+        ok: bool
+        in_time: bool
+
+        handle: str
+        handle_state: HandleState
+        contest: ContestState
+        index: str
+        sub: Submission
+        point_mapping: "ContestCmd.PointMapping"
+        pattern: re.Pattern[str]
+        points: int
 
     contest_id: str
     point_mappings: list[PointMapping]
@@ -72,6 +106,7 @@ class ContestCmd(BaseModel):
     class JsonInput(BaseModel):
         class JsonInputPoints(BaseModel):
             range: tuple[int, int] | None = None
+            teams: list[list[str]] | None = None
             points: dict[str, int]
 
         id: Annotated[str, StringConstraints(pattern=r"\d+", max_length=12)] | None = None
@@ -109,13 +144,13 @@ class ContestCmd(BaseModel):
             # Parse points
             points: list[ContestCmd.PointMapping]
             if isinstance(raw.points, dict):
-                points = [
-                    ContestCmd.PointMapping(timerange=None, mapping=ContestCmd.PointMapping.compilemapping(raw.points))
-                ]
+                points = [ContestCmd.PointMapping.new(None, raw.points, [])]
             else:
                 points = [
-                    ContestCmd.PointMapping(
-                        timerange=points.range, mapping=ContestCmd.PointMapping.compilemapping(points.points)
+                    ContestCmd.PointMapping.new(
+                        points.range,
+                        points.points,
+                        points.teams,
                     )
                     for points in raw.points
                 ]
@@ -149,27 +184,62 @@ class ContestCmd(BaseModel):
 
         return contest_id
 
-    def compute_points(self, global_state: GlobalState):
-        for handle_state in global_state.by_handle.values():
+    def visit_all_submissions(self, global_state: GlobalState, visit: Callable[[VisitedSubmission], None]):
+        for handle, handle_state in global_state.by_handle.items():
             contest = handle_state.by_contest.get(self.contest_id, None)
             if contest is not None:
                 for index, sub in contest.by_index.items():
-                    if sub.verdict == "OK":
-                        for point_mapping in self.point_mappings:
-                            if point_mapping.timerange is None or (
+                    for point_mapping in self.point_mappings:
+                        if point_mapping.timerange is not None:
+                            ok = (
                                 sub.relativeTimeSeconds is not None
                                 and point_mapping.timerange[0] * 60
                                 <= sub.relativeTimeSeconds
                                 <= point_mapping.timerange[1] * 60
-                            ):
-                                for pat, points in point_mapping.mapping.items():
-                                    if pat.fullmatch(index):
-                                        if sub.author.participantType == "CONTESTANT":
-                                            sub.synthetic.points = max(sub.synthetic.points or 0, points)
-                                        else:
-                                            sub.synthetic.points_with_coupon = max(
-                                                sub.synthetic.points_with_coupon or 0, points
-                                            )
+                            )
+                            if not ok:
+                                continue
+                        if point_mapping.whitelist_teams and handle not in point_mapping.teams_by_handle:
+                            continue
+                        for pat, points in point_mapping.mapping.items():
+                            if pat.fullmatch(index):
+                                visit(
+                                    ContestCmd.VisitedSubmission(
+                                        ok=sub.verdict == "OK",
+                                        in_time=sub.author.participantType == "CONTESTANT",
+                                        handle=handle,
+                                        handle_state=handle_state,
+                                        contest=contest,
+                                        index=index,
+                                        sub=sub,
+                                        point_mapping=point_mapping,
+                                        pattern=pat,
+                                        points=points,
+                                    )
+                                )
+
+    def share_team_submissions(self, global_state: GlobalState, commands: "Commands"):
+        def visit(info: ContestCmd.VisitedSubmission):
+            if info.ok and info.in_time:
+                teams = info.point_mapping.teams_by_handle.get(info.handle, None)
+                if teams:
+                    for team in teams:
+                        for teammate_handle in team:
+                            teammate = global_state.by_handle.get(teammate_handle, None)
+                            if teammate is not None:
+                                teammate.insert_submission(info.sub, commands)
+
+        self.visit_all_submissions(global_state, visit)
+
+    def compute_points(self, global_state: GlobalState):
+        def visit(info: ContestCmd.VisitedSubmission):
+            if info.ok:
+                if info.in_time:
+                    info.sub.synthetic.points = max(info.sub.synthetic.points or 0, info.points)
+                else:
+                    info.sub.synthetic.points_with_coupon = max(info.sub.synthetic.points_with_coupon or 0, info.points)
+
+        self.visit_all_submissions(global_state, visit)
 
     def generate_output(self, global_state: GlobalState) -> CommandOutput:
         out = CommandOutput(by_handle=[])
@@ -387,6 +457,10 @@ def compute(raw_commands: list[str], handles: list[str]) -> list[CommandOutput]:
             for rating in ratings:
                 contest_id = str(rating.contestId)
                 global_state.by_handle[handle].by_contest[contest_id].rated_name = rating.contestName
+
+    # Share OK submissions between members of a team, within the contests that they are teams in
+    for cmd in commands.contest:
+        cmd.share_team_submissions(global_state, commands)
 
     # Compute points for each problem
     for cmd in commands.contest:
